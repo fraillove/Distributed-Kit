@@ -1,11 +1,11 @@
 package com.distributed.limit.redis;
 
-import java.util.concurrent.TimeUnit;
+import lombok.Data;
 
 /**
  * 限制规则
- * Created by sunyujia@aliyun.com on 2015/9/30.
  */
+@Data
 public class LimitRule {
 
     /**
@@ -23,39 +23,7 @@ public class LimitRule {
     private int lockTime;
 
 
-    public int getSeconds() {
-        return seconds;
-    }
-
-    public void setSeconds(int seconds) {
-        this.seconds = seconds;
-    }
-
-    public int getLimitCount() {
-        return limitCount;
-    }
-
-    public void setLimitCount(int limitCount) {
-        this.limitCount = limitCount;
-    }
-
-    public int getLockCount() {
-        return lockCount;
-    }
-
-    public void setLockCount(int lockCount) {
-        this.lockCount = lockCount;
-    }
-
-    public int getLockTime() {
-        return lockTime;
-    }
-
-    public void setLockTime(int lockTime) {
-        this.lockTime = lockTime;
-    }
-
-    public boolean enableLimitLock(){
-        return getLockTime()>0&&getLockCount()>0;
+    public boolean enableLimitLock() {
+        return getLockTime() > 0 && getLockCount() > 0;
     }
 }

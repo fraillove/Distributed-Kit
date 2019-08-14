@@ -2,7 +2,6 @@ package com.distributed.lock;
 
 /**
  * 分布式锁模板类
- * Created by sunyujia@aliyun.com on 2016/2/23.
  */
 public interface DistributedLockTemplate {
 

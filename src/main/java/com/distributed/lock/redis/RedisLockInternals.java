@@ -1,50 +1,51 @@
 package com.distributed.lock.redis;
 
-import org.jboss.netty.util.internal.NonReentrantLock;
-import org.slf4j.LoggerFactory;
-import redis.clients.jedis.Jedis;
-import redis.clients.jedis.JedisPool;
-import redis.clients.jedis.exceptions.JedisException;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.data.redis.core.script.DefaultRedisScript;
+import org.springframework.data.redis.core.script.RedisScript;
 
+import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.locks.Condition;
-import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.LockSupport;
-import java.util.concurrent.locks.ReentrantLock;
 
-/**
- * Created by sunyujia@aliyun.com on 2016/2/26.
- */
+
+@Slf4j
 class RedisLockInternals {
-    private static final org.slf4j.Logger log = LoggerFactory.getLogger(RedisLockInternals.class);
 
-    private JedisPool jedisPool;
+    /**
+     * 释放锁成功返回值
+     */
+    private static final Number RELEASE_LOCK_SUCCESS_RESULT = 1L;
+
+    private final RedisTemplate<String, Serializable> limitRedisTemplate;
+
 
     /**
      * 重试等待时间
      */
-    private int retryAwait=300;
+    private int retryAwait = 300;
 
-    private int lockTimeout=2000;
+    private int lockTimeout = 2000;
 
 
-    RedisLockInternals(JedisPool jedisPool) {
-        this.jedisPool = jedisPool;
+    RedisLockInternals(RedisTemplate<String, Serializable> limitRedisTemplate) {
+        this.limitRedisTemplate = limitRedisTemplate;
     }
 
-    String tryRedisLock(String lockId,long time, TimeUnit unit) {
+    String tryRedisLock(String lockId, long time, TimeUnit unit) {
         final long startMillis = System.currentTimeMillis();
         final Long millisToWait = (unit != null) ? unit.toMillis(time) : null;
-        String lockValue=null;
-        while (lockValue==null){
-            lockValue=createRedisKey(lockId);
-            if(lockValue!=null){
+        String lockValue = null;
+        while (lockValue == null) {
+            lockValue = createRedisKey(lockId);
+            if (lockValue != null) {
                 break;
             }
-            if(System.currentTimeMillis()-startMillis-retryAwait>millisToWait){
+            if (System.currentTimeMillis() - startMillis - retryAwait > millisToWait) {
                 break;
             }
             LockSupport.parkNanos(TimeUnit.MILLISECONDS.toNanos(retryAwait));
@@ -53,50 +54,36 @@ class RedisLockInternals {
     }
 
     private String createRedisKey(String lockId) {
-        Jedis jedis = null;
-        boolean broken = false;
-        try {
-            String value=lockId+randomId(1);
-            jedis = jedisPool.getResource();
-            String luaScript = ""
-                    + "\nlocal r = tonumber(redis.call('SETNX', KEYS[1],ARGV[1]));"
-                    + "\nredis.call('PEXPIRE',KEYS[1],ARGV[2]);"
-                    + "\nreturn r";
-            List<String> keys = new ArrayList<String>();
-            keys.add(lockId);
-            List<String> args = new ArrayList<String>();
-            args.add(value);
-            args.add(lockTimeout+"");
-            Long ret = (Long) jedis.eval(luaScript, keys, args);
-            if( new Long(1).equals(ret)){
-                return value;
-            }
-        }finally {
-            if(jedis!=null) jedis.close();
+        String value = lockId + randomId(1);
+        String luaScript = "local r = tonumber(redis.call('SETNX', KEYS[1],ARGV[1]));"
+                + "\nredis.call('PEXPIRE',KEYS[1],ARGV[2]);"
+                + "\nreturn r";
+        List<String> keys = new ArrayList<String>();
+        keys.add(lockId);
+        RedisScript<Number> redisScript = new DefaultRedisScript<>(luaScript, Number.class);
+
+        Number ret = limitRedisTemplate.execute(redisScript, keys, value, lockTimeout);
+
+        if (RELEASE_LOCK_SUCCESS_RESULT.equals(ret)) {
+            return value;
         }
+
         return null;
     }
 
-    void unlockRedisLock(String key,String value) {
-        Jedis jedis = null;
-        boolean broken = false;
-        try {
-            jedis = jedisPool.getResource();
-            String luaScript=""
-                    +"\nlocal v = redis.call('GET', KEYS[1]);"
-                    +"\nlocal r= 0;"
-                    +"\nif v == ARGV[1] then"
-                    +"\nr =redis.call('DEL',KEYS[1]);"
-                    +"\nend"
-                    +"\nreturn r";
-            List<String> keys = new ArrayList<String>();
-            keys.add(key);
-            List<String> args = new ArrayList<String>();
-            args.add(value);
-            Object r=jedis.eval(luaScript, keys, args);
-        } finally {
-            if(jedis!=null) jedis.close();
-        }
+    void unlockRedisLock(String key, String value) {
+        String luaScript = ""
+                + "\nlocal v = redis.call('GET', KEYS[1]);"
+                + "\nlocal r= 0;"
+                + "\nif v == ARGV[1] then"
+                + "\nr =redis.call('DEL',KEYS[1]);"
+                + "\nend"
+                + "\nreturn r";
+        List<String> keys = new ArrayList<String>();
+        keys.add(key);
+        RedisScript<Object> redisScript = new DefaultRedisScript<>(luaScript, Object.class);
+
+        limitRedisTemplate.execute(redisScript, keys, value);
     }
 
     private final static char[] digits = {'0', '1', '2', '3', '4', '5', '6', '7', '8',
@@ -112,11 +99,5 @@ class RedisLockInternals {
             cs[i] = digits[ThreadLocalRandom.current().nextInt(digits.length)];
         }
         return new String(cs);
-    }
-
-    public static void main(String[] args){
-        System.out.println(System.currentTimeMillis());
-        LockSupport.parkNanos(TimeUnit.MILLISECONDS.toNanos(300));
-        System.out.println(System.currentTimeMillis());
     }
 }
