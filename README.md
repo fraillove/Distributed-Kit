@@ -30,7 +30,7 @@ public static void main(String[] args){
         }
     });
 }
-~~~ 
+~~~
 ~~~ java
 public static void main(String[] args) throws Exception {
     JedisPool jedisPool=new JedisPool("127.0.0.1",6379);//实际应用时可通过spring注入
@@ -122,6 +122,3 @@ public class AccessSpeedLimitTest {
 }
 ~~~
 
-#技术交流:
-QQ: 4115291 
-Mail: sunyujia.d@gmail.com
